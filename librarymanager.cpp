@@ -308,3 +308,66 @@ void LibraryManager::createBorrowReturnTab()
 
     tabWidget->addTab(borrowTab, "借还书管理");
 }
+
+void LibraryManager::createStatisticsTab()
+{
+    QWidget *statsTab = new QWidget;
+    QVBoxLayout *mainLayout = new QVBoxLayout(statsTab);
+
+    // 统计信息区域
+    QGroupBox *statsGroup = new QGroupBox("统计概览");
+    QGridLayout *statsLayout = new QGridLayout;
+
+    totalBooksLabel = new QLabel("总计: 0");
+    totalReadersLabel = new QLabel("读者: 0");
+    borrowedBooksLabel = new QLabel("已借: 0");
+    overdueBooksLabel = new QLabel("逾期: 0");
+    popularCategoryLabel = new QLabel("热门分类: 无");
+    activeReadersLabel = new QLabel("活跃读者: 0");
+
+    statsLayout->addWidget(totalBooksLabel, 0, 0);
+    statsLayout->addWidget(totalReadersLabel, 0, 1);
+    statsLayout->addWidget(borrowedBooksLabel, 0, 2);
+    statsLayout->addWidget(overdueBooksLabel, 1, 0);
+    statsLayout->addWidget(popularCategoryLabel, 1, 1);
+    statsLayout->addWidget(activeReadersLabel, 1, 2);
+
+    QPushButton *refreshButton = new QPushButton("刷新统计");
+    connect(refreshButton, &QPushButton::clicked, this, &LibraryManager::refreshStatistics);
+    statsLayout->addWidget(refreshButton, 2, 0, 1, 3);
+
+    statsGroup->setLayout(statsLayout);
+    mainLayout->addWidget(statsGroup);
+
+    // 报告区域
+    QGroupBox *reportGroup = new QGroupBox("统计报告");
+    QVBoxLayout *reportLayout = new QVBoxLayout(reportGroup);
+
+    reportTextEdit = new QTextEdit;
+    reportTextEdit->setReadOnly(true);
+    reportLayout->addWidget(reportTextEdit);
+
+    QHBoxLayout *reportButtonLayout = new QHBoxLayout;
+    QPushButton *generateReportButton = new QPushButton("生成报告");
+    connect(generateReportButton, &QPushButton::clicked, this, &LibraryManager::generateReport);
+    reportButtonLayout->addWidget(generateReportButton);
+
+    QPushButton *printButton = new QPushButton("打印");
+    connect(printButton, &QPushButton::clicked, [this]() {
+        QPrinter printer;
+        QPrintDialog dialog(&printer, this);
+        if (dialog.exec() == QDialog::Accepted) {
+            reportTextEdit->print(&printer);
+        }
+    });
+    reportButtonLayout->addWidget(printButton);
+    reportButtonLayout->addStretch();
+    reportLayout->addLayout(reportButtonLayout);
+
+    mainLayout->addWidget(reportGroup);
+
+    tabWidget->addTab(statsTab, "统计报表");
+
+    // 初始刷新统计
+    refreshStatistics();
+}
