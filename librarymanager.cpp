@@ -545,3 +545,82 @@ void LibraryManager::createToolBar()
     connect(overdueAction, &QAction::triggered, this, &LibraryManager::checkOverdueBooks);
     toolBar->addAction(overdueAction);
 }
+
+void LibraryManager::createStatusBar()
+{
+    statusBar()->showMessage("就绪", 5000);
+}
+
+void LibraryManager::createModels()
+{
+    // 统计数据模型
+    statisticsModel = new QStandardItemModel(this);
+}
+
+// 图书管理槽函数
+void LibraryManager::addBook()
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle("添加图书");
+    QFormLayout layout(&dialog);
+
+    QLineEdit *isbnEdit = new QLineEdit;
+    QLineEdit *titleEdit = new QLineEdit;
+    QLineEdit *authorEdit = new QLineEdit;
+    QLineEdit *publisherEdit = new QLineEdit;
+    QDateEdit *publishDateEdit = new QDateEdit(QDate::currentDate());
+    QComboBox *categoryCombo = new QComboBox;
+    categoryCombo->setEditable(true);
+    categoryCombo->addItems({"编程", "文学", "科学", "历史", "艺术", "教育"});
+    QDoubleSpinBox *priceSpin = new QDoubleSpinBox;
+    priceSpin->setRange(0, 9999);
+    priceSpin->setDecimals(2);
+    QSpinBox *copiesSpin = new QSpinBox;
+    copiesSpin->setRange(1, 1000);
+    QLineEdit *locationEdit = new QLineEdit;
+    QTextEdit *descEdit = new QTextEdit;
+
+    layout.addRow("ISBN:", isbnEdit);
+    layout.addRow("书名:", titleEdit);
+    layout.addRow("作者:", authorEdit);
+    layout.addRow("出版社:", publisherEdit);
+    layout.addRow("出版日期:", publishDateEdit);
+    layout.addRow("分类:", categoryCombo);
+    layout.addRow("价格:", priceSpin);
+    layout.addRow("数量:", copiesSpin);
+    layout.addRow("位置:", locationEdit);
+    layout.addRow("描述:", descEdit);
+
+    QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    layout.addRow(&buttons);
+
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() == QDialog::Accepted) {
+        QSqlQuery query;
+        query.prepare("INSERT INTO books (isbn, title, author, publisher, publish_date, "
+                     "category, price, total_copies, available_copies, location, description) "
+                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        query.addBindValue(isbnEdit->text());
+        query.addBindValue(titleEdit->text());
+        query.addBindValue(authorEdit->text());
+        query.addBindValue(publisherEdit->text());
+        query.addBindValue(publishDateEdit->date());
+        query.addBindValue(categoryCombo->currentText());
+        query.addBindValue(priceSpin->value());
+        query.addBindValue(copiesSpin->value());
+        query.addBindValue(copiesSpin->value());
+        query.addBindValue(locationEdit->text());
+        query.addBindValue(descEdit->toPlainText());
+
+        if (query.exec()) {
+            QMessageBox::information(this, "成功", "图书添加成功！");
+            bookModel->select();
+            refreshStatistics();
+        } else {
+            QMessageBox::warning(this, "错误", "添加图书失败：" + query.lastError().text());
+        }
+    }
+}
+
