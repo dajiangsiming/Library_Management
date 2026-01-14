@@ -799,3 +799,79 @@ void LibraryManager::clearBookSearch()
     bookModel->setFilter("");
     bookModel->select();
 }
+
+// 读者管理槽函数
+void LibraryManager::addReader()
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle("添加读者");
+    dialog.setFixedWidth(400);
+    QFormLayout layout(&dialog);
+
+    QLineEdit *cardEdit = new QLineEdit;
+    QLineEdit *nameEdit = new QLineEdit;
+    QComboBox *genderCombo = new QComboBox;
+    genderCombo->addItems({"男", "女"});
+    QDateEdit *birthDateEdit = new QDateEdit(QDate::currentDate().addYears(-20));
+    birthDateEdit->setCalendarPopup(true);
+    QLineEdit *phoneEdit = new QLineEdit;
+    QLineEdit *emailEdit = new QLineEdit;
+    QLineEdit *addressEdit = new QLineEdit;
+    QComboBox *typeCombo = new QComboBox;
+    typeCombo->addItems({"普通读者", "学生", "教师", "VIP"});
+    QSpinBox *maxBorrowSpin = new QSpinBox;
+    maxBorrowSpin->setRange(1, 20);
+    maxBorrowSpin->setValue(5);
+    QSpinBox *maxDaysSpin = new QSpinBox;
+    maxDaysSpin->setRange(7, 180);
+    maxDaysSpin->setValue(30);
+    QDateEdit *expiryDateEdit = new QDateEdit(QDate::currentDate().addYears(1));
+    expiryDateEdit->setCalendarPopup(true);
+    QTextEdit *notesEdit = new QTextEdit;
+
+    layout.addRow("借书证号:", cardEdit);
+    layout.addRow("姓名:", nameEdit);
+    layout.addRow("性别:", genderCombo);
+    layout.addRow("出生日期:", birthDateEdit);
+    layout.addRow("电话:", phoneEdit);
+    layout.addRow("邮箱:", emailEdit);
+    layout.addRow("地址:", addressEdit);
+    layout.addRow("读者类型:", typeCombo);
+    layout.addRow("最大借书数:", maxBorrowSpin);
+    layout.addRow("最长借期:", maxDaysSpin);
+    layout.addRow("有效期至:", expiryDateEdit);
+    layout.addRow("备注:", notesEdit);
+
+    QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    layout.addRow(&buttons);
+
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() == QDialog::Accepted) {
+        QSqlQuery query;
+        query.prepare("INSERT INTO readers (card_number, name, gender, birth_date, phone, "
+                     "email, address, reader_type, max_borrow, max_days, expiry_date, notes) "
+                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        query.addBindValue(cardEdit->text());
+        query.addBindValue(nameEdit->text());
+        query.addBindValue(genderCombo->currentText());
+        query.addBindValue(birthDateEdit->date());
+        query.addBindValue(phoneEdit->text());
+        query.addBindValue(emailEdit->text());
+        query.addBindValue(addressEdit->text());
+        query.addBindValue(typeCombo->currentText());
+        query.addBindValue(maxBorrowSpin->value());
+        query.addBindValue(maxDaysSpin->value());
+        query.addBindValue(expiryDateEdit->date());
+        query.addBindValue(notesEdit->toPlainText());
+
+        if (query.exec()) {
+            QMessageBox::information(this, "成功", "读者添加成功！");
+            readerModel->select();
+            refreshStatistics();
+        } else {
+            QMessageBox::warning(this, "错误", "添加读者失败：" + query.lastError().text());
+        }
+    }
+}
