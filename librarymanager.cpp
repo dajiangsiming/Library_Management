@@ -875,3 +875,103 @@ void LibraryManager::addReader()
         }
     }
 }
+
+void LibraryManager::editReader()
+{
+    QModelIndexList selection = readerTableView->selectionModel()->selectedRows();
+    if (selection.isEmpty()) {
+        QMessageBox::warning(this, "警告", "请选择要编辑的读者！");
+        return;
+    }
+
+    int row = selection.first().row();
+    int readerId = readerModel->data(readerModel->index(row, 0)).toInt();
+
+    QSqlQuery query;
+    query.prepare("SELECT * FROM readers WHERE id = ?");
+    query.addBindValue(readerId);
+    if (!query.exec() || !query.next()) {
+        QMessageBox::warning(this, "错误", "未找到选择的读者！");
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("编辑读者");
+    dialog.setFixedWidth(400);
+    QFormLayout layout(&dialog);
+
+    QLineEdit *cardEdit = new QLineEdit(query.value("card_number").toString());
+    QLineEdit *nameEdit = new QLineEdit(query.value("name").toString());
+    QComboBox *genderCombo = new QComboBox;
+    genderCombo->addItems({"男", "女"});
+    genderCombo->setCurrentText(query.value("gender").toString());
+    QDateEdit *birthDateEdit = new QDateEdit(query.value("birth_date").toDate());
+    birthDateEdit->setCalendarPopup(true);
+    QLineEdit *phoneEdit = new QLineEdit(query.value("phone").toString());
+    QLineEdit *emailEdit = new QLineEdit(query.value("email").toString());
+    QLineEdit *addressEdit = new QLineEdit(query.value("address").toString());
+    QComboBox *typeCombo = new QComboBox;
+    typeCombo->addItems({"普通读者", "学生", "教师", "VIP"});
+    typeCombo->setCurrentText(query.value("reader_type").toString());
+    QSpinBox *maxBorrowSpin = new QSpinBox;
+    maxBorrowSpin->setRange(1, 20);
+    maxBorrowSpin->setValue(query.value("max_borrow").toInt());
+    QSpinBox *maxDaysSpin = new QSpinBox;
+    maxDaysSpin->setRange(7, 180);
+    maxDaysSpin->setValue(query.value("max_days").toInt());
+    QComboBox *statusCombo = new QComboBox;
+    statusCombo->addItems({"正常", "挂失", "停用"});
+    statusCombo->setCurrentText(query.value("status").toString());
+    QDateEdit *expiryDateEdit = new QDateEdit(query.value("expiry_date").toDate());
+    expiryDateEdit->setCalendarPopup(true);
+    QTextEdit *notesEdit = new QTextEdit(query.value("notes").toString());
+
+    layout.addRow("借书证号:", cardEdit);
+    layout.addRow("姓名:", nameEdit);
+    layout.addRow("性别:", genderCombo);
+    layout.addRow("出生日期:", birthDateEdit);
+    layout.addRow("电话:", phoneEdit);
+    layout.addRow("邮箱:", emailEdit);
+    layout.addRow("地址:", addressEdit);
+    layout.addRow("读者类型:", typeCombo);
+    layout.addRow("最大借书数:", maxBorrowSpin);
+    layout.addRow("最长借期:", maxDaysSpin);
+    layout.addRow("状态:", statusCombo);
+    layout.addRow("有效期至:", expiryDateEdit);
+    layout.addRow("备注:", notesEdit);
+
+    QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    layout.addRow(&buttons);
+
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() == QDialog::Accepted) {
+        QSqlQuery updateQuery;
+        updateQuery.prepare("UPDATE readers SET card_number = ?, name = ?, gender = ?, "
+                          "birth_date = ?, phone = ?, email = ?, address = ?, reader_type = ?, "
+                          "max_borrow = ?, max_days = ?, status = ?, expiry_date = ?, notes = ? "
+                          "WHERE id = ?");
+        updateQuery.addBindValue(cardEdit->text());
+        updateQuery.addBindValue(nameEdit->text());
+        updateQuery.addBindValue(genderCombo->currentText());
+        updateQuery.addBindValue(birthDateEdit->date());
+        updateQuery.addBindValue(phoneEdit->text());
+        updateQuery.addBindValue(emailEdit->text());
+        updateQuery.addBindValue(addressEdit->text());
+        updateQuery.addBindValue(typeCombo->currentText());
+        updateQuery.addBindValue(maxBorrowSpin->value());
+        updateQuery.addBindValue(maxDaysSpin->value());
+        updateQuery.addBindValue(statusCombo->currentText());
+        updateQuery.addBindValue(expiryDateEdit->date());
+        updateQuery.addBindValue(notesEdit->toPlainText());
+        updateQuery.addBindValue(readerId);
+
+        if (updateQuery.exec()) {
+            QMessageBox::information(this, "成功", "读者信息更新成功！");
+            readerModel->select();
+        } else {
+            QMessageBox::warning(this, "错误", "更新失败：" + updateQuery.lastError().text());
+        }
+    }
+}
