@@ -9,6 +9,121 @@
 #include <QPrintDialog>
 #include <QDesktopServices>
 #include <QMessageBox>
+
+
+LibraryManager::LibraryManager(QWidget *parent)
+    : QMainWindow(parent)
+    , overdueTimer(new QTimer(this))
+    , trayIcon(new QSystemTrayIcon(this))
+{
+    setupDatabase();
+    setupUI();
+    createMenuBar();
+    createToolBar();
+    createStatusBar();
+    createModels();
+
+    // 设置定时器检查逾期书籍（每小时检查一次）
+    connect(overdueTimer, &QTimer::timeout, this, &LibraryManager::checkOverdueBooks);
+    overdueTimer->start(3600000); // 1小时
+
+    // 启动时立即检查一次
+    checkOverdueBooks();
+
+    // 设置系统托盘
+    trayIcon->setIcon(QIcon(":/icons/library.png"));
+    trayIcon->setToolTip("图书馆管理系统");
+    trayIcon->show();
+}
+
+LibraryManager::~LibraryManager()
+{
+    if (db.isOpen()) {
+        db.close();
+    }
+}
+
+void LibraryManager::setupDatabase()
+{
+    // 连接SQLite数据库
+    db = QSqlDatabase::addDatabase("QSQLITE");
+    db.setDatabaseName("library.db");
+
+    if (!db.open()) {
+        QMessageBox::critical(this, "错误", "无法打开数据库！");
+        return;
+    }
+
+    QSqlQuery query;
+
+    // 创建图书表
+    query.exec("CREATE TABLE IF NOT EXISTS books ("
+               "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+               "isbn TEXT UNIQUE NOT NULL,"
+               "title TEXT NOT NULL,"
+               "author TEXT NOT NULL,"
+               "publisher TEXT,"
+               "publish_date DATE,"
+               "category TEXT,"
+               "price REAL,"
+               "total_copies INTEGER DEFAULT 1,"
+               "available_copies INTEGER DEFAULT 1,"
+               "location TEXT,"
+               "description TEXT,"
+               "status TEXT DEFAULT '在库',"
+               "created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+
+    // 创建读者表
+    query.exec("CREATE TABLE IF NOT EXISTS readers ("
+               "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+               "card_number TEXT UNIQUE NOT NULL,"
+               "name TEXT NOT NULL,"
+               "gender TEXT,"
+               "birth_date DATE,"
+               "phone TEXT,"
+               "email TEXT,"
+               "address TEXT,"
+               "reader_type TEXT DEFAULT '普通读者',"
+               "max_borrow INTEGER DEFAULT 5,"
+               "max_days INTEGER DEFAULT 30,"
+               "status TEXT DEFAULT '正常',"
+               "registration_date DATE DEFAULT CURRENT_DATE,"
+               "expiry_date DATE,"
+               "notes TEXT)");
+
+    // 创建借阅记录表
+    query.exec("CREATE TABLE IF NOT EXISTS borrow_records ("
+               "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+               "book_id INTEGER NOT NULL,"
+               "reader_id INTEGER NOT NULL,"
+               "borrow_date DATE NOT NULL,"
+               "due_date DATE NOT NULL,"
+               "return_date DATE,"
+               "renew_count INTEGER DEFAULT 0,"
+               "status TEXT DEFAULT '借出',"
+               "overdue_fee REAL DEFAULT 0,"
+               "FOREIGN KEY(book_id) REFERENCES books(id),"
+               "FOREIGN KEY(reader_id) REFERENCES readers(id))");
+
+    // 创建借阅历史表
+    query.exec("CREATE TABLE IF NOT EXISTS borrow_history ("
+               "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+               "book_id INTEGER,"
+               "reader_id INTEGER,"
+               "action TEXT,"
+               "action_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+               "details TEXT)");
+
+    // 插入一些示例数据（如果表为空）
+    query.exec("SELECT COUNT(*) FROM books");
+    if (query.next() && query.value(0).toInt() == 0) {
+        query.exec("INSERT INTO books (isbn, title, author, publisher, category, price, total_copies, available_copies) "
+                   "VALUES ('9787111636664', 'C++ Primer', 'Stanley Lippman', '机械工业出版社', '编程', 128.0, 5, 5)");
+        query.exec("INSERT INTO books (isbn, title, author, publisher, category, price, total_copies, available_copies) "
+                   "VALUES ('9787302518014', 'Qt5开发实战', '王维波', '清华大学出版社', '编程', 89.0, 3, 3)");
+    }
+}
+
 void LibraryManager::setupUI()
 {
     // 设置主窗口
