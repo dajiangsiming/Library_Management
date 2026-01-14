@@ -756,3 +756,46 @@ void LibraryManager::deleteBook()
         }
     }
 }
+
+void LibraryManager::searchBooks()
+{
+    QStringList filters;
+
+    if (!bookIdFilter->text().isEmpty()) {
+        filters.append(QString("id = %1").arg(bookIdFilter->text()));
+    }
+    if (!bookTitleFilter->text().isEmpty()) {
+        filters.append(QString("title LIKE '%%1%'").arg(bookTitleFilter->text()));
+    }
+    if (!bookAuthorFilter->text().isEmpty()) {
+        filters.append(QString("author LIKE '%%1%'").arg(bookAuthorFilter->text()));
+    }
+    if (!bookIsbnFilter->text().isEmpty()) {
+        filters.append(QString("isbn LIKE '%%1%'").arg(bookIsbnFilter->text()));
+    }
+    if (bookCategoryFilter->currentText() != "所有分类") {
+        filters.append(QString("category = '%1'").arg(bookCategoryFilter->currentText()));
+    }
+    if (bookStatusFilter->currentText() != "所有状态") {
+        filters.append(QString("status = '%1'").arg(bookStatusFilter->currentText()));
+    }
+
+    QString filter = filters.join(" AND ");
+    bookModel->setFilter(filter);
+    bookModel->select();
+
+    statusBar()->showMessage(QString("找到 %1 本图书").arg(bookModel->rowCount()), 3000);
+}
+
+void LibraryManager::clearBookSearch()
+{
+    bookIdFilter->clear();
+    bookTitleFilter->clear();
+    bookAuthorFilter->clear();
+    bookIsbnFilter->clear();
+    bookCategoryFilter->setCurrentIndex(0);
+    bookStatusFilter->setCurrentIndex(0);
+
+    bookModel->setFilter("");
+    bookModel->select();
+}
