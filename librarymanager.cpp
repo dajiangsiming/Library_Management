@@ -624,3 +624,135 @@ void LibraryManager::addBook()
     }
 }
 
+void LibraryManager::editBook()
+{
+    QModelIndexList selection = bookTableView->selectionModel()->selectedRows();
+    if (selection.isEmpty()) {
+        QMessageBox::warning(this, "警告", "请选择要编辑的图书！");
+        return;
+    }
+
+    int row = selection.first().row();
+    int bookId = bookModel->data(bookModel->index(row, 0)).toInt();
+
+    QSqlQuery query;
+    query.prepare("SELECT * FROM books WHERE id = ?");
+    query.addBindValue(bookId);
+    if (!query.exec() || !query.next()) {
+        QMessageBox::warning(this, "错误", "未找到选择的图书！");
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("编辑图书");
+    QFormLayout layout(&dialog);
+
+    QLineEdit *isbnEdit = new QLineEdit(query.value("isbn").toString());
+    QLineEdit *titleEdit = new QLineEdit(query.value("title").toString());
+    QLineEdit *authorEdit = new QLineEdit(query.value("author").toString());
+    QLineEdit *publisherEdit = new QLineEdit(query.value("publisher").toString());
+    QDateEdit *publishDateEdit = new QDateEdit(query.value("publish_date").toDate());
+    QComboBox *categoryCombo = new QComboBox;
+    categoryCombo->setEditable(true);
+    categoryCombo->addItems({"编程", "文学", "科学", "历史", "艺术", "教育"});
+    categoryCombo->setCurrentText(query.value("category").toString());
+    QDoubleSpinBox *priceSpin = new QDoubleSpinBox;
+    priceSpin->setRange(0, 9999);
+    priceSpin->setDecimals(2);
+    priceSpin->setValue(query.value("price").toDouble());
+    QSpinBox *copiesSpin = new QSpinBox;
+    copiesSpin->setRange(1, 1000);
+    copiesSpin->setValue(query.value("total_copies").toInt());
+    QLineEdit *locationEdit = new QLineEdit(query.value("location").toString());
+    QTextEdit *descEdit = new QTextEdit(query.value("description").toString());
+    QComboBox *statusCombo = new QComboBox;
+    statusCombo->addItems({"在库", "借出", "维护中"});
+    statusCombo->setCurrentText(query.value("status").toString());
+
+    layout.addRow("ISBN:", isbnEdit);
+    layout.addRow("书名:", titleEdit);
+    layout.addRow("作者:", authorEdit);
+    layout.addRow("出版社:", publisherEdit);
+    layout.addRow("出版日期:", publishDateEdit);
+    layout.addRow("分类:", categoryCombo);
+    layout.addRow("价格:", priceSpin);
+    layout.addRow("数量:", copiesSpin);
+    layout.addRow("位置:", locationEdit);
+    layout.addRow("状态:", statusCombo);
+    layout.addRow("描述:", descEdit);
+
+    QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    layout.addRow(&buttons);
+
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() == QDialog::Accepted) {
+        QSqlQuery updateQuery;
+        updateQuery.prepare("UPDATE books SET isbn = ?, title = ?, author = ?, publisher = ?, "
+                          "publish_date = ?, category = ?, price = ?, total_copies = ?, "
+                          "available_copies = ?, location = ?, status = ?, description = ? "
+                          "WHERE id = ?");
+        updateQuery.addBindValue(isbnEdit->text());
+        updateQuery.addBindValue(titleEdit->text());
+        updateQuery.addBindValue(authorEdit->text());
+        updateQuery.addBindValue(publisherEdit->text());
+        updateQuery.addBindValue(publishDateEdit->date());
+        updateQuery.addBindValue(categoryCombo->currentText());
+        updateQuery.addBindValue(priceSpin->value());
+        updateQuery.addBindValue(copiesSpin->value());
+        updateQuery.addBindValue(copiesSpin->value()); // 假设编辑时可用数量等于总数
+        updateQuery.addBindValue(locationEdit->text());
+        updateQuery.addBindValue(statusCombo->currentText());
+        updateQuery.addBindValue(descEdit->toPlainText());
+        updateQuery.addBindValue(bookId);
+
+        if (updateQuery.exec()) {
+            QMessageBox::information(this, "成功", "图书信息更新成功！");
+            bookModel->select();
+        } else {
+            QMessageBox::warning(this, "错误", "更新失败：" + updateQuery.lastError().text());
+        }
+    }
+}
+
+void LibraryManager::deleteBook()
+{
+    QModelIndexList selection = bookTableView->selectionModel()->selectedRows();
+    if (selection.isEmpty()) {
+        QMessageBox::warning(this, "警告", "请选择要删除的图书！");
+        return;
+    }
+
+    int row = selection.first().row();
+    QString bookTitle = bookModel->data(bookModel->index(row, 2)).toString();
+
+    int result = QMessageBox::question(this, "确认删除",
+        QString("确定要删除图书《%1》吗？").arg(bookTitle),
+        QMessageBox::Yes | QMessageBox::No);
+
+    if (result == QMessageBox::Yes) {
+        int bookId = bookModel->data(bookModel->index(row, 0)).toInt();
+
+        // 检查图书是否被借出
+        QSqlQuery checkQuery;
+        checkQuery.prepare("SELECT COUNT(*) FROM borrow_records WHERE book_id = ? AND status = '借出'");
+        checkQuery.addBindValue(bookId);
+        if (checkQuery.exec() && checkQuery.next() && checkQuery.value(0).toInt() > 0) {
+            QMessageBox::warning(this, "错误", "该图书已被借出，无法删除！");
+            return;
+        }
+
+        QSqlQuery deleteQuery;
+        deleteQuery.prepare("DELETE FROM books WHERE id = ?");
+        deleteQuery.addBindValue(bookId);
+
+        if (deleteQuery.exec()) {
+            QMessageBox::information(this, "成功", "图书删除成功！");
+            bookModel->select();
+            refreshStatistics();
+        } else {
+            QMessageBox::warning(this, "错误", "删除失败：" + deleteQuery.lastError().text());
+        }
+    }
+}
