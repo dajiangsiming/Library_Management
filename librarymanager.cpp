@@ -371,3 +371,62 @@ void LibraryManager::createStatisticsTab()
     // 初始刷新统计
     refreshStatistics();
 }
+
+void LibraryManager::createMenuBar()
+{
+    QMenu *fileMenu = menuBar()->addMenu("文件(&F)");
+
+    QAction *backupAction = new QAction("备份数据库", this);
+    connect(backupAction, &QAction::triggered, this, &LibraryManager::backupDatabase);
+    fileMenu->addAction(backupAction);
+
+    QAction *restoreAction = new QAction("恢复数据库", this);
+    connect(restoreAction, &QAction::triggered, this, &LibraryManager::restoreDatabase);
+    fileMenu->addAction(restoreAction);
+
+    fileMenu->addSeparator();
+
+    QAction *exitAction = new QAction("退出", this);
+    exitAction->setShortcut(QKeySequence::Quit);
+    connect(exitAction, &QAction::triggered, this, &QWidget::close);
+    fileMenu->addAction(exitAction);
+
+    QMenu *helpMenu = menuBar()->addMenu("帮助(&H)");
+
+    QAction *aboutAction = new QAction("关于", this);
+    connect(aboutAction, &QAction::triggered, this, &LibraryManager::about);
+    helpMenu->addAction(aboutAction);
+}
+
+void LibraryManager::createToolBar()
+{
+    QToolBar *toolBar = addToolBar("主工具栏");
+
+    QAction *addBookAction = new QAction(QIcon(":/icons/add.png"), "添加图书", this);
+    connect(addBookAction, &QAction::triggered, this, &LibraryManager::addBook);
+    toolBar->addAction(addBookAction);
+
+    QAction *addReaderAction = new QAction(QIcon(":/icons/user_add.png"), "添加读者", this);
+    connect(addReaderAction, &QAction::triggered, this, &LibraryManager::addReader);
+    toolBar->addAction(addReaderAction);
+
+    toolBar->addSeparator();
+
+    QAction *borrowAction = new QAction(QIcon(":/icons/borrow.png"), "借书", this);
+    connect(borrowAction, &QAction::triggered, this, &LibraryManager::borrowBook);
+    toolBar->addAction(borrowAction);
+
+    QAction *returnAction = new QAction(QIcon(":/icons/return.png"), "还书", this);
+    connect(returnAction, &QAction::triggered, this, &LibraryManager::returnBook);
+    toolBar->addAction(returnAction);
+
+    toolBar->addSeparator();
+
+    QAction *statsAction = new QAction(QIcon(":/icons/undo.png"), "刷新统计", this);
+    connect(statsAction, &QAction::triggered, this, &LibraryManager::refreshStatistics);
+    toolBar->addAction(statsAction);
+
+    QAction *overdueAction = new QAction(QIcon(":/icons/warning.png"), "检查逾期", this);
+    connect(overdueAction, &QAction::triggered, this, &LibraryManager::checkOverdueBooks);
+    toolBar->addAction(overdueAction);
+}
