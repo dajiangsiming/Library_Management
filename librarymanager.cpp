@@ -975,3 +975,61 @@ void LibraryManager::editReader()
         }
     }
 }
+
+void LibraryManager::deleteReader()
+{
+    QModelIndexList selection = readerTableView->selectionModel()->selectedRows();
+    if (selection.isEmpty()) {
+        QMessageBox::warning(this, "警告", "请选择要删除的读者！");
+        return;
+    }
+
+    int row = selection.first().row();
+    QString readerName = readerModel->data(readerModel->index(row, 2)).toString();
+
+    int result = QMessageBox::question(this, "确认删除",
+        QString("确定要删除读者【%1】吗？").arg(readerName),
+        QMessageBox::Yes | QMessageBox::No);
+
+    if (result == QMessageBox::Yes) {
+        int readerId = readerModel->data(readerModel->index(row, 0)).toInt();
+
+        // 检查读者是否有未归还的图书
+        QSqlQuery checkQuery;
+        checkQuery.prepare("SELECT COUNT(*) FROM borrow_records WHERE reader_id = ? AND status = '借出'");
+        checkQuery.addBindValue(readerId);
+        if (checkQuery.exec() && checkQuery.next() && checkQuery.value(0).toInt() > 0) {
+            QMessageBox::warning(this, "错误", "该读者有未归还的图书，无法删除！");
+            return;
+        }
+
+        QSqlQuery deleteQuery;
+        deleteQuery.prepare("DELETE FROM readers WHERE id = ?");
+        deleteQuery.addBindValue(readerId);
+
+        if (deleteQuery.exec()) {
+            QMessageBox::information(this, "成功", "读者删除成功！");
+            readerModel->select();
+            refreshStatistics();
+        } else {
+            QMessageBox::warning(this, "错误", "删除失败：" + deleteQuery.lastError().text());
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
