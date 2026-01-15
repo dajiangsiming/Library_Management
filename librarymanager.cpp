@@ -1017,6 +1017,40 @@ void LibraryManager::deleteReader()
     }
 }
 
+void LibraryManager::searchReaders()
+{
+    QStringList filters;
+
+    if (!readerIdFilter->text().isEmpty()) {
+        filters.append(QString("id = %1").arg(readerIdFilter->text()));
+    }
+    if (!readerNameFilter->text().isEmpty()) {
+        filters.append(QString("name LIKE '%%1%'").arg(readerNameFilter->text()));
+    }
+    if (!readerPhoneFilter->text().isEmpty()) {
+        filters.append(QString("phone LIKE '%%1%'").arg(readerPhoneFilter->text()));
+    }
+    if (readerTypeFilter->currentText() != "所有类型") {
+        filters.append(QString("reader_type = '%1'").arg(readerTypeFilter->currentText()));
+    }
+
+    QString filter = filters.join(" AND ");
+    readerModel->setFilter(filter);
+    readerModel->select();
+
+    statusBar()->showMessage(QString("找到 %1 位读者").arg(readerModel->rowCount()), 3000);
+}
+
+void LibraryManager::clearReaderSearch()
+{
+    readerIdFilter->clear();
+    readerNameFilter->clear();
+    readerPhoneFilter->clear();
+    readerTypeFilter->setCurrentIndex(0);
+
+    readerModel->setFilter("");
+    readerModel->select();
+}
 
 
 
