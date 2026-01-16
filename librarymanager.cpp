@@ -1197,7 +1197,109 @@ void LibraryManager::borrowBook()
     }
 }
 
+void LibraryManager::returnBook()
+{
+    QString recordId = returnRecordId->text().trimmed();
 
+    if (recordId.isEmpty()) {
+        QMessageBox::warning(this, "错误", "请输入借阅记录ID！");
+        return;
+    }
+
+    QSqlDatabase::database().transaction();
+
+    try {
+        // 检查借阅记录
+        QSqlQuery borrowQuery;
+        borrowQuery.prepare("SELECT br.*, b.title, r.name FROM borrow_records br "
+                          "JOIN books b ON br.book_id = b.id "
+                          "JOIN readers r ON br.reader_id = r.id "
+                          "WHERE br.id = ? AND br.status = '借出'");
+        borrowQuery.addBindValue(recordId.toInt());
+
+        if (!borrowQuery.exec() || !borrowQuery.next()) {
+            throw QString("无效的借阅记录ID或图书已归还！");
+        }
+
+        int bookId = borrowQuery.value("book_id").toInt();
+        QDate dueDate = borrowQuery.value("due_date").toDate();
+        QDate returnDate = QDate::currentDate();
+
+        // 计算逾期天数和费用
+        int overdueDays = 0;
+        double overdueFee = 0.0;
+
+        if (returnDate > dueDate) {
+            overdueDays = dueDate.daysTo(returnDate);
+            overdueFee = overdueDays * 0.5; // 每天0.5元逾期费
+        }
+
+        // 更新借阅记录
+        QSqlQuery updateBorrowQuery;
+        updateBorrowQuery.prepare("UPDATE borrow_records SET return_date = ?, status = '已还', "
+                              "overdue_fee = ? WHERE id = ?");
+        updateBorrowQuery.addBindValue(returnDate);
+        updateBorrowQuery.addBindValue(overdueFee);
+        updateBorrowQuery.addBindValue(recordId.toInt());
+
+        if (!updateBorrowQuery.exec()) {
+            throw QString("更新借阅记录失败！");
+        }
+
+        // 更新图书可用数量
+        QSqlQuery updateBookQuery;
+        updateBookQuery.prepare("UPDATE books SET available_copies = available_copies + 1 WHERE id = ?");
+        updateBookQuery.addBindValue(bookId);
+
+        if (!updateBookQuery.exec()) {
+            throw QString("更新图书信息失败！");
+        }
+
+        // 记录历史
+        QString bookTitle = borrowQuery.value("title").toString();
+        QString readerName = borrowQuery.value("name").toString();
+
+        QSqlQuery historyQuery;
+        historyQuery.prepare("INSERT INTO borrow_history (book_id, reader_id, action, details) "
+                           "VALUES (?, ?, ?, ?)");
+        historyQuery.addBindValue(bookId);
+        historyQuery.addBindValue(borrowQuery.value("reader_id").toInt());
+        historyQuery.addBindValue("归还");
+        QString details = QString("归还《%1》").arg(bookTitle);
+        if (overdueDays > 0) {
+            details += QString("，逾期%1天，费用：%2元").arg(overdueDays).arg(overdueFee, 0, 'f', 2);
+        }
+        historyQuery.addBindValue(details);
+
+        historyQuery.exec();
+
+        QSqlDatabase::database().commit();
+
+        QString message = QString("还书成功！\n图书：%1\n读者：%2")
+                          .arg(bookTitle)
+                          .arg(readerName);
+
+        if (overdueDays > 0) {
+            message += QString("\n逾期%1天，需支付费用：%2元")
+                      .arg(overdueDays)
+                      .arg(overdueFee, 0, 'f', 2);
+        }
+
+        QMessageBox::information(this, "成功", message);
+
+        // 清空输入框
+        returnRecordId->clear();
+
+        // 刷新显示
+        bookModel->select();
+        borrowModel->select();
+        refreshStatistics();
+
+    } catch (const QString &error) {
+        QSqlDatabase::database().rollback();
+        QMessageBox::warning(this, "还书失败", error);
+    }
+}
 
 
 
