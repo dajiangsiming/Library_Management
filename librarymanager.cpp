@@ -1301,7 +1301,86 @@ void LibraryManager::returnBook()
     }
 }
 
+void LibraryManager::renewBook()
+{
+    QString recordId = returnRecordId->text().trimmed();
 
+    if (recordId.isEmpty()) {
+        QMessageBox::warning(this, "错误", "请输入借阅记录ID！");
+        return;
+    }
+
+    QSqlDatabase::database().transaction();
+
+    try {
+        // 检查借阅记录
+        QSqlQuery borrowQuery;
+        borrowQuery.prepare("SELECT br.*, b.title, r.name, r.max_days FROM borrow_records br "
+                          "JOIN books b ON br.book_id = b.id "
+                          "JOIN readers r ON br.reader_id = r.id "
+                          "WHERE br.id = ? AND br.status = '借出'");
+        borrowQuery.addBindValue(recordId.toInt());
+
+        if (!borrowQuery.exec() || !borrowQuery.next()) {
+            throw QString("无效的借阅记录ID或图书已归还！");
+        }
+
+        int renewCount = borrowQuery.value("renew_count").toInt();
+        if (renewCount >= 2) { // 最多续借2次
+            throw QString("该书已续借2次，无法再次续借！");
+        }
+
+        QDate currentDueDate = borrowQuery.value("due_date").toDate();
+        int maxDays = borrowQuery.value("max_days").toInt();
+        QDate newDueDate = QDate::currentDate().addDays(maxDays);
+
+        if (newDueDate <= currentDueDate) {
+            throw QString("续借后日期必须晚于当前应还日期！");
+        }
+
+        // 更新借阅记录
+        QSqlQuery updateQuery;
+        updateQuery.prepare("UPDATE borrow_records SET due_date = ?, renew_count = renew_count + 1 WHERE id = ?");
+        updateQuery.addBindValue(newDueDate);
+        updateQuery.addBindValue(recordId.toInt());
+
+        if (!updateQuery.exec()) {
+            throw QString("续借失败！");
+        }
+
+        // 记录历史
+        QString bookTitle = borrowQuery.value("title").toString();
+        QString readerName = borrowQuery.value("name").toString();
+
+        QSqlQuery historyQuery;
+        historyQuery.prepare("INSERT INTO borrow_history (book_id, reader_id, action, details) "
+                           "VALUES (?, ?, ?, ?)");
+        historyQuery.addBindValue(borrowQuery.value("book_id").toInt());
+        historyQuery.addBindValue(borrowQuery.value("reader_id").toInt());
+        historyQuery.addBindValue("续借");
+        historyQuery.addBindValue(QString("续借《%1》至%2").arg(bookTitle).arg(newDueDate.toString("yyyy-MM-dd")));
+
+        historyQuery.exec();
+
+        QSqlDatabase::database().commit();
+
+        QMessageBox::information(this, "成功",
+            QString("续借成功！\n图书：%1\n读者：%2\n新应还日期：%3")
+                .arg(bookTitle)
+                .arg(readerName)
+                .arg(newDueDate.toString("yyyy-MM-dd")));
+
+        // 清空输入框
+        returnRecordId->clear();
+
+        // 刷新显示
+        borrowModel->select();
+
+    } catch (const QString &error) {
+        QSqlDatabase::database().rollback();
+        QMessageBox::warning(this, "续借失败", error);
+    }
+}
 
 
 
