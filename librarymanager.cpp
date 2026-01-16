@@ -1382,6 +1382,49 @@ void LibraryManager::renewBook()
     }
 }
 
+// 统计功能
+void LibraryManager::refreshStatistics()
+{
+    QSqlQuery query;
+
+    // 总图书数量
+    query.exec("SELECT COUNT(*) FROM books");
+    if (query.next()) {
+        totalBooksLabel->setText(QString("总计: %1 本").arg(query.value(0).toInt()));
+    }
+
+    // 总读者数量
+    query.exec("SELECT COUNT(*) FROM readers");
+    if (query.next()) {
+        totalReadersLabel->setText(QString("读者: %1 人").arg(query.value(0).toInt()));
+    }
+
+    // 已借出图书数量
+    query.exec("SELECT COUNT(*) FROM borrow_records WHERE status = '借出'");
+    if (query.next()) {
+        borrowedBooksLabel->setText(QString("已借: %1 本").arg(query.value(0).toInt()));
+    }
+
+    // 逾期图书数量
+    query.exec("SELECT COUNT(*) FROM borrow_records WHERE status = '借出' AND due_date < date('now')");
+    if (query.next()) {
+        overdueBooksLabel->setText(QString("逾期: %1 本").arg(query.value(0).toInt()));
+    }
+
+    // 热门分类
+    query.exec("SELECT category, COUNT(*) as count FROM books GROUP BY category ORDER BY count DESC LIMIT 1");
+    if (query.next()) {
+        popularCategoryLabel->setText(QString("热门分类: %1").arg(query.value(0).toString()));
+    }
+
+    // 活跃读者（最近30天有借书记录的）
+    query.exec("SELECT COUNT(DISTINCT reader_id) FROM borrow_records "
+               "WHERE borrow_date >= date('now', '-30 days')");
+    if (query.next()) {
+        activeReadersLabel->setText(QString("活跃读者: %1 人").arg(query.value(0).toInt()));
+    }
+}
+
 
 
 
