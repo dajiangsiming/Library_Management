@@ -1052,6 +1052,152 @@ void LibraryManager::clearReaderSearch()
     readerModel->select();
 }
 
+void LibraryManager::clearReaderSearch()
+{
+    readerIdFilter->clear();
+    readerNameFilter->clear();
+    readerPhoneFilter->clear();
+    readerTypeFilter->setCurrentIndex(0);
+
+    readerModel->setFilter("");
+    readerModel->select();
+}
+
+// 借还书管理槽函数
+void LibraryManager::borrowBook()
+{
+    QString bookId = borrowBookId->text().trimmed();
+    QString readerId = borrowReaderId->text().trimmed();
+
+    if (bookId.isEmpty() || readerId.isEmpty()) {
+        QMessageBox::warning(this, "错误", "请填写图书ID和读者ID！");
+        return;
+    }
+
+    QSqlDatabase::database().transaction();
+
+    try {
+        // 检查图书是否存在且可借
+        QSqlQuery bookQuery;
+        bookQuery.prepare("SELECT id, title, available_copies FROM books WHERE id = ?");
+        bookQuery.addBindValue(bookId.toInt());
+        if (!bookQuery.exec() || !bookQuery.next()) {
+            throw QString("图书ID不存在！");
+        }
+
+        int availableCopies = bookQuery.value("available_copies").toInt();
+        if (availableCopies <= 0) {
+            throw QString("该图书已全部借出！");
+        }
+
+        QString bookTitle = bookQuery.value("title").toString();
+
+        // 检查读者是否存在且可借
+        QSqlQuery readerQuery;
+        readerQuery.prepare("SELECT id, name, max_borrow, status FROM readers WHERE id = ?");
+        readerQuery.addBindValue(readerId.toInt());
+        if (!readerQuery.exec() || !readerQuery.next()) {
+            throw QString("读者ID不存在！");
+        }
+
+        if (readerQuery.value("status").toString() != "正常") {
+            throw QString("该读者状态异常，无法借书！");
+        }
+
+        QString readerName = readerQuery.value("name").toString();
+        int maxBorrow = readerQuery.value("max_borrow").toInt();
+
+        // 检查读者当前借书数量
+        QSqlQuery countQuery;
+        countQuery.prepare("SELECT COUNT(*) FROM borrow_records WHERE reader_id = ? AND status = '借出'");
+        countQuery.addBindValue(readerId.toInt());
+        if (countQuery.exec() && countQuery.next() && countQuery.value(0).toInt() >= maxBorrow) {
+            throw QString("该读者已达到最大借书数量限制！");
+        }
+
+        // 检查是否已借过同一本书
+        QSqlQuery duplicateQuery;
+        duplicateQuery.prepare("SELECT COUNT(*) FROM borrow_records WHERE book_id = ? AND reader_id = ? AND status = '借出'");
+        duplicateQuery.addBindValue(bookId.toInt());
+        duplicateQuery.addBindValue(readerId.toInt());
+        if (duplicateQuery.exec() && duplicateQuery.next() && duplicateQuery.value(0).toInt() > 0) {
+            throw QString("该读者已借阅此书，请勿重复借阅！");
+        }
+
+        // 获取最长借期
+        QSqlQuery maxDaysQuery;
+        maxDaysQuery.prepare("SELECT max_days FROM readers WHERE id = ?");
+        maxDaysQuery.addBindValue(readerId.toInt());
+        int maxDays = 30; // 默认30天
+        if (maxDaysQuery.exec() && maxDaysQuery.next()) {
+            maxDays = maxDaysQuery.value(0).toInt();
+        }
+
+        int borrowDays = this->borrowDays->value();
+        if (borrowDays > maxDays) {
+            borrowDays = maxDays;
+        }
+
+        QDate borrowDate = QDate::currentDate();
+        QDate dueDate = borrowDate.addDays(borrowDays);
+
+        // 插入借阅记录
+        QSqlQuery borrowQuery;
+        borrowQuery.prepare("INSERT INTO borrow_records (book_id, reader_id, borrow_date, due_date) "
+                          "VALUES (?, ?, ?, ?)");
+        borrowQuery.addBindValue(bookId.toInt());
+        borrowQuery.addBindValue(readerId.toInt());
+        borrowQuery.addBindValue(borrowDate);
+        borrowQuery.addBindValue(dueDate);
+
+        if (!borrowQuery.exec()) {
+            throw QString("借阅记录创建失败：" + borrowQuery.lastError().text());
+        }
+
+        // 更新图书可用数量
+        QSqlQuery updateBookQuery;
+        updateBookQuery.prepare("UPDATE books SET available_copies = available_copies - 1 WHERE id = ?");
+        updateBookQuery.addBindValue(bookId.toInt());
+
+        if (!updateBookQuery.exec()) {
+            throw QString("更新图书信息失败：" + updateBookQuery.lastError().text());
+        }
+
+        // 记录历史
+        QSqlQuery historyQuery;
+        historyQuery.prepare("INSERT INTO borrow_history (book_id, reader_id, action, details) "
+                           "VALUES (?, ?, ?, ?)");
+        historyQuery.addBindValue(bookId.toInt());
+        historyQuery.addBindValue(readerId.toInt());
+        historyQuery.addBindValue("借出");
+        historyQuery.addBindValue(QString("借阅《%1》，应还日期：%2").arg(bookTitle).arg(dueDate.toString("yyyy-MM-dd")));
+
+        historyQuery.exec();
+
+        QSqlDatabase::database().commit();
+
+        QMessageBox::information(this, "成功",
+            QString("借书成功！\n图书：%1\n读者：%2\n应还日期：%3")
+                .arg(bookTitle)
+                .arg(readerName)
+                .arg(dueDate.toString("yyyy-MM-dd")));
+
+        // 清空输入框
+        borrowBookId->clear();
+        borrowReaderId->clear();
+
+        // 刷新显示
+        bookModel->select();
+        borrowModel->select();
+        refreshStatistics();
+
+    } catch (const QString &error) {
+        QSqlDatabase::database().rollback();
+        QMessageBox::warning(this, "借书失败", error);
+    }
+}
+
+
 
 
 
