@@ -1425,6 +1425,492 @@ void LibraryManager::refreshStatistics()
     }
 }
 
+void LibraryManager::generateReport()
+{
+    QString report = "===== 图书馆统计报告 =====\n";
+    report += "生成时间: " + QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") + "\n\n";
+
+    QSqlQuery query;
+
+    // 图书统计
+    report += "1. 图书统计\n";
+    report += "----------\n";
+
+    query.exec("SELECT COUNT(*) as total, "
+               "SUM(CASE WHEN status = '在库' THEN 1 ELSE 0 END) as available, "
+               "SUM(CASE WHEN status = '借出' THEN 1 ELSE 0 END) as borrowed, "
+               "SUM(CASE WHEN status = '维护中' THEN 1 ELSE 0 END) as maintenance "
+               "FROM books");
+    if (query.next()) {
+        report += QString("图书总数: %1 本\n").arg(query.value("total").toInt());
+        report += QString("在库图书: %1 本\n").arg(query.value("available").toInt());
+        report += QString("借出图书: %1 本\n").arg(query.value("borrowed").toInt());
+        report += QString("维护中图书: %1 本\n").arg(query.value("maintenance").toInt());
+    }
+
+    // 读者统计
+    report += "\n2. 读者统计\n";
+    report += "----------\n";
+
+    query.exec("SELECT COUNT(*) as total, "
+               "reader_type, COUNT(*) as count "
+               "FROM readers GROUP BY reader_type");
+    while (query.next()) {
+        report += QString("%1: %2 人\n").arg(query.value("reader_type").toString())
+                                       .arg(query.value("count").toInt());
+    }
+
+    // 借阅统计
+    report += "\n3. 借阅统计\n";
+    report += "----------\n";
+
+    query.exec("SELECT COUNT(*) as total_borrows FROM borrow_records");
+    if (query.next()) {
+        report += QString("总借阅次数: %1 次\n").arg(query.value("total_borrows").toInt());
+    }
+
+    query.exec("SELECT COUNT(*) as current_borrows FROM borrow_records WHERE status = '借出'");
+    if (query.next()) {
+        report += QString("当前借出: %1 本\n").arg(query.value("current_borrows").toInt());
+    }
+
+    query.exec("SELECT COUNT(*) as overdue FROM borrow_records "
+               "WHERE status = '借出' AND due_date < date('now')");
+    if (query.next()) {
+        report += QString("逾期未还: %1 本\n").arg(query.value("overdue").toInt());
+    }
+
+    // 热门图书
+    report += "\n4. 热门图书（借阅次数前5）\n";
+    report += "-------------------------\n";
+
+    query.exec("SELECT b.title, COUNT(br.id) as borrow_count "
+               "FROM borrow_records br "
+               "JOIN books b ON br.book_id = b.id "
+               "GROUP BY b.id ORDER BY borrow_count DESC LIMIT 5");
+    int rank = 1;
+    while (query.next()) {
+        report += QString("%1. %2 (借阅%3次)\n")
+            .arg(rank++)
+            .arg(query.value("title").toString())
+            .arg(query.value("borrow_count").toInt());
+    }
+
+    // 活跃读者
+    report += "\n5. 活跃读者（借阅次数前5）\n";
+    report += "-------------------------\n";
+
+    query.exec("SELECT r.name, COUNT(br.id) as borrow_count "
+               "FROM borrow_records br "
+               "JOIN readers r ON br.reader_id = r.id "
+               "GROUP BY r.id ORDER BY borrow_count DESC LIMIT 5");
+    rank = 1;
+    while (query.next()) {
+        report += QString("%1. %2 (借阅%3次)\n")
+            .arg(rank++)
+            .arg(query.value("name").toString())
+            .arg(query.value("borrow_count").toInt());
+    }
+
+    // 逾期列表
+    report += "\n6. 逾期未还图书\n";
+    report += "--------------\n";
+
+    query.exec("SELECT br.id, b.title, r.name, br.due_date, "
+               "julianday('now') - julianday(br.due_date) as overdue_days "
+               "FROM borrow_records br "
+               "JOIN books b ON br.book_id = b.id "
+               "JOIN readers r ON br.reader_id = r.id "
+               "WHERE br.status = '借出' AND br.due_date < date('now') "
+               "ORDER BY br.due_date");
+
+    bool hasOverdue = false;
+    while (query.next()) {
+        hasOverdue = true;
+        report += QString("图书: %1, 读者: %2, 应还日期: %3, 逾期天数: %4\n")
+            .arg(query.value("title").toString())
+            .arg(query.value("name").toString())
+            .arg(query.value("due_date").toDate().toString("yyyy-MM-dd"))
+            .arg(query.value("overdue_days").toInt());
+    }
+
+    if (!hasOverdue) {
+        report += "无逾期记录\n";
+    }
+
+    reportTextEdit->setPlainText(report);
+    statusBar()->showMessage("报告生成完成", 3000);
+}
+
+// 逾期提醒功能
+void LibraryManager::checkOverdueBooks()
+{
+    QSqlQuery query;
+    query.exec("SELECT COUNT(*) as count FROM borrow_records "
+               "WHERE status = '借出' AND due_date = date('now')");
+
+    int dueToday = 0;
+    if (query.next()) {
+        dueToday = query.value("count").toInt();
+    }
+
+    query.exec("SELECT COUNT(*) as count FROM borrow_records "
+               "WHERE status = '借出' AND due_date < date('now')");
+
+    int overdue = 0;
+    if (query.next()) {
+        overdue = query.value("count").toInt();
+    }
+
+    if (dueToday > 0 || overdue > 0) {
+        QString message;
+        if (dueToday > 0) {
+            message += QString("今天有 %1 本图书到期\n").arg(dueToday);
+        }
+        if (overdue > 0) {
+            message += QString("有 %1 本图书已逾期\n").arg(overdue);
+        }
+
+        // 显示系统托盘提示
+        trayIcon->showMessage("逾期提醒", message, QSystemTrayIcon::Warning, 10000);
+
+        // 更新状态栏
+        statusBar()->showMessage(message.trimmed(), 10000);
+
+        // 更新统计显示
+        refreshStatistics();
+    }
+}
+
+// 替换 showOverdueList() 函数中的相关代码
+void LibraryManager::showOverdueList()
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle("逾期图书列表");
+    dialog.resize(600, 400);
+
+    QVBoxLayout *layout = new QVBoxLayout(&dialog);
+
+    QTableView *overdueView = new QTableView;
+    QSqlQueryModel *overdueModel = new QSqlQueryModel(this);  // 使用 QSqlQueryModel
+
+    // 创建包含详细信息的视图
+    QString queryStr = QString(
+        "SELECT br.id as '记录ID', "
+        "b.title as '图书名称', "
+        "r.name as '读者姓名', "
+        "br.borrow_date as '借书日期', "
+        "br.due_date as '应还日期', "
+        "julianday('now') - julianday(br.due_date) as '逾期天数', "
+        "r.phone as '读者电话' "
+        "FROM borrow_records br "
+        "JOIN books b ON br.book_id = b.id "
+        "JOIN readers r ON br.reader_id = r.id "
+        "WHERE br.status = '借出' AND br.due_date < date('now') "
+        "ORDER BY br.due_date ASC"
+    );
+
+    overdueModel->setQuery(queryStr, db);  // 添加数据库连接参数
+
+    // 注意：QSqlQueryModel 的表头是自动设置的，但您可能需要手动设置
+    // 由于我们使用了列别名，SQL会使用这些别名作为表头
+
+    overdueView->setModel(overdueModel);
+    overdueView->resizeColumnsToContents();
+    overdueView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    overdueView->setAlternatingRowColors(true);
+
+    // 设置逾期天数列的颜色
+    // 创建一个自定义委托来设置文本颜色
+    class OverdueDelegate : public QStyledItemDelegate
+    {
+    public:
+        OverdueDelegate(QObject *parent = nullptr) : QStyledItemDelegate(parent) {}
+
+        void initStyleOption(QStyleOptionViewItem *option,
+                           const QModelIndex &index) const override
+        {
+            QStyledItemDelegate::initStyleOption(option, index);
+
+            // 第5列是逾期天数（从0开始计数）
+            if (index.column() == 5) {
+                bool ok;
+                int days = index.data().toInt(&ok);
+                if (ok && days > 0) {
+                    //option->foreground = QBrush(Qt::red);
+                    option->font.setBold(true);
+                }
+            }
+        }
+    };
+
+    // 应用委托
+    OverdueDelegate *delegate = new OverdueDelegate(overdueView);
+    overdueView->setItemDelegateForColumn(5, delegate);
+
+    layout->addWidget(overdueView);
+
+    // 按钮区域
+    QHBoxLayout *buttonLayout = new QHBoxLayout;
+
+    QPushButton *sendReminderButton = new QPushButton("发送提醒");
+    connect(sendReminderButton, &QPushButton::clicked, [this, &dialog, overdueView]() {
+        QModelIndexList selection = overdueView->selectionModel()->selectedRows();
+        if (selection.isEmpty()) {
+            QMessageBox::warning(&dialog, "警告", "请选择要发送提醒的记录！");
+            return;
+        }
+
+        int row = selection.first().row();
+        int recordId = overdueView->model()->data(overdueView->model()->index(row, 0)).toInt();
+
+        QSqlQuery query;
+        query.prepare("SELECT r.phone, r.email, r.name, b.title, br.due_date, "
+                     "julianday('now') - julianday(br.due_date) as overdue_days "
+                     "FROM borrow_records br "
+                     "JOIN books b ON br.book_id = b.id "
+                     "JOIN readers r ON br.reader_id = r.id "
+                     "WHERE br.id = ?");
+        query.addBindValue(recordId);
+
+        if (query.exec() && query.next()) {
+            QString phone = query.value("phone").toString();
+            QString email = query.value("email").toString();
+            QString readerName = query.value("name").toString();
+            QString bookTitle = query.value("title").toString();
+            QDate dueDate = query.value("due_date").toDate();
+            int overdueDays = query.value("overdue_days").toInt();
+
+            QString reminder = QString("尊敬的%1读者，您借阅的《%2》已于%3到期，已逾期%4天，请尽快归还。")
+                               .arg(readerName)
+                               .arg(bookTitle)
+                               .arg(dueDate.toString("yyyy-MM-dd"))
+                               .arg(overdueDays);
+
+            QMessageBox::information(&dialog, "提醒内容",
+                QString("提醒内容：\n%1\n\n发送至：\n电话：%2\n邮箱：%3")
+                .arg(reminder)
+                .arg(phone.isEmpty() ? "无" : phone)
+                .arg(email.isEmpty() ? "无" : email));
+
+            // 记录提醒历史
+            QSqlQuery historyQuery;
+            historyQuery.prepare("INSERT INTO borrow_history (book_id, reader_id, action, details) "
+                               "VALUES ((SELECT book_id FROM borrow_records WHERE id = ?), "
+                               "(SELECT reader_id FROM borrow_records WHERE id = ?), "
+                               "'逾期提醒', ?)");
+            historyQuery.addBindValue(recordId);
+            historyQuery.addBindValue(recordId);
+            historyQuery.addBindValue(reminder);
+            historyQuery.exec();
+
+            statusBar()->showMessage("提醒发送完成", 3000);
+        }
+    });
+    buttonLayout->addWidget(sendReminderButton);
+
+    QPushButton *exportButton = new QPushButton("导出列表");
+    connect(exportButton, &QPushButton::clicked, [this, overdueModel]() {
+        QString fileName = QFileDialog::getSaveFileName(this, "导出逾期列表",
+                                                       "overdue_books_" + QDate::currentDate().toString("yyyyMMdd"),
+                                                       "CSV文件 (*.csv);;文本文件 (*.txt)");
+        if (fileName.isEmpty()) return;
+
+        QFile file(fileName);
+        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream stream(&file);
+            stream.setCodec("UTF-8");
+
+            // 写入表头
+            for (int col = 0; col < overdueModel->columnCount(); ++col) {
+                stream << overdueModel->headerData(col, Qt::Horizontal).toString();
+                if (col < overdueModel->columnCount() - 1) {
+                    stream << ",";
+                }
+            }
+            stream << "\n";
+
+            // 写入数据
+            for (int row = 0; row < overdueModel->rowCount(); ++row) {
+                for (int col = 0; col < overdueModel->columnCount(); ++col) {
+                    QModelIndex index = overdueModel->index(row, col);
+                    QString data = overdueModel->data(index).toString();
+                    // 处理包含逗号的数据
+                    if (data.contains(",") || data.contains("\"")) {
+                        data = "\"" + data.replace("\"", "\"\"") + "\"";
+                    }
+                    stream << data;
+                    if (col < overdueModel->columnCount() - 1) {
+                        stream << ",";
+                    }
+                }
+                stream << "\n";
+            }
+
+            file.close();
+            QMessageBox::information(this, "成功", "逾期列表导出成功！");
+        } else {
+            QMessageBox::warning(this, "错误", "无法保存文件！");
+        }
+    });
+    buttonLayout->addWidget(exportButton);
+
+    QPushButton *printButton = new QPushButton("打印");
+    connect(printButton, &QPushButton::clicked, [this, overdueView]() {
+        QPrinter printer;
+        QPrintDialog dialog(&printer, this);
+        if (dialog.exec() == QDialog::Accepted) {
+            QTextDocument doc;
+            QString html = "<h2>逾期图书列表</h2>";
+            html += "<p>生成时间：" + QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") + "</p>";
+            html += "<table border='1' cellspacing='0' cellpadding='5'>";
+
+            // 表头
+            html += "<tr>";
+            for (int col = 0; col < overdueView->model()->columnCount(); ++col) {
+                html += "<th>" + overdueView->model()->headerData(col, Qt::Horizontal).toString() + "</th>";
+            }
+            html += "</tr>";
+
+            // 数据行
+            for (int row = 0; row < overdueView->model()->rowCount(); ++row) {
+                html += "<tr>";
+                for (int col = 0; col < overdueView->model()->columnCount(); ++col) {
+                    QModelIndex index = overdueView->model()->index(row, col);
+                    QString data = overdueView->model()->data(index).toString();
+                    // 逾期天数用红色显示
+                    if (col == 5 && overdueView->model()->data(index).toInt() > 0) {
+                        html += QString("<td style='color:red;'>%1</td>").arg(data);
+                    } else {
+                        html += "<td>" + data + "</td>";
+                    }
+                }
+                html += "</tr>";
+            }
+            html += "</table>";
+
+            doc.setHtml(html);
+            doc.print(&printer);
+        }
+    });
+    buttonLayout->addWidget(printButton);
+
+    buttonLayout->addStretch();
+
+    QPushButton *closeButton = new QPushButton("关闭");
+    connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+    buttonLayout->addWidget(closeButton);
+
+    layout->addLayout(buttonLayout);
+
+    dialog.exec();
+}
+
+// 数据库备份与恢复
+void LibraryManager::backupDatabase()
+{
+    QString fileName = QFileDialog::getSaveFileName(this, "备份数据库",
+                                                   "library_backup_" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss"),
+                                                   "SQLite数据库文件 (*.db);;所有文件 (*.*)");
+    if (fileName.isEmpty()) return;
+
+    if (db.isOpen()) {
+        db.close();
+    }
+
+    if (QFile::copy("library.db", fileName)) {
+        QMessageBox::information(this, "成功", "数据库备份成功！");
+    } else {
+        QMessageBox::warning(this, "错误", "数据库备份失败！");
+    }
+
+    // 重新打开数据库
+    db.open();
+    bookModel->select();
+    readerModel->select();
+    borrowModel->select();
+}
+
+void LibraryManager::restoreDatabase()
+{
+    QString fileName = QFileDialog::getOpenFileName(this, "恢复数据库",
+                                                   "",
+                                                   "SQLite数据库文件 (*.db);;所有文件 (*.*)");
+    if (fileName.isEmpty()) return;
+
+    int result = QMessageBox::warning(this, "警告",
+                                     "恢复数据库将覆盖当前所有数据，是否继续？",
+                                     QMessageBox::Yes | QMessageBox::No);
+
+    if (result == QMessageBox::Yes) {
+        if (db.isOpen()) {
+            db.close();
+        }
+
+        if (QFile::remove("library.db") && QFile::copy(fileName, "library.db")) {
+            QMessageBox::information(this, "成功", "数据库恢复成功！");
+
+            // 重新打开数据库
+            db.open();
+            bookModel->select();
+            readerModel->select();
+            borrowModel->select();
+            refreshStatistics();
+        } else {
+            QMessageBox::critical(this, "错误", "数据库恢复失败！");
+            db.open();
+        }
+    }
+}
+
+void LibraryManager::about()
+{
+    QString aboutText =
+        "<h2>图书馆管理系统</h2>"
+        "<p>版本: 1.0.0</p>"
+        "<p>开发: LibrarySoft</p>"
+        "<p>功能:</p>"
+        "<ul>"
+        "<li>图书信息录入与维护</li>"
+        "<li>读者档案管理</li>"
+        "<li>借还书流程记录</li>"
+        "<li>借阅数据统计</li>"
+        "<li>借阅逾期自动提醒</li>"
+        "<li>多条件筛选查询</li>"
+        "</ul>"
+        "<p>技术支持: librarysoft@example.com</p>";
+
+    QMessageBox::about(this, "关于", aboutText);
+}
+
+void LibraryManager::applyFilters()
+{
+    // 这个方法可以通过信号槽机制自动应用过滤器
+    // 目前是通过按钮手动触发的
+}
+
+// 工具函数 - 创建QIcon
+QIcon LibraryManager::createIcon(const QString &color, const QString &symbol)
+{
+    QPixmap pixmap(32, 32);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+
+    QColor bgColor(color);
+    painter.setBrush(bgColor);
+    painter.setPen(Qt::NoPen);
+    painter.drawEllipse(2, 2, 28, 28);
+
+    painter.setPen(Qt::white);
+    painter.setFont(QFont("Arial", 16));
+    painter.drawText(pixmap.rect(), Qt::AlignCenter, symbol);
+
+    return QIcon(pixmap);
+}
+
+
 
 
 
