@@ -10,7 +10,6 @@
 #include <QDesktopServices>
 #include <QMessageBox>
 
-
 LibraryManager::LibraryManager(QWidget *parent)
     : QMainWindow(parent)
     , overdueTimer(new QTimer(this))
@@ -1052,17 +1051,6 @@ void LibraryManager::clearReaderSearch()
     readerModel->select();
 }
 
-void LibraryManager::clearReaderSearch()
-{
-    readerIdFilter->clear();
-    readerNameFilter->clear();
-    readerPhoneFilter->clear();
-    readerTypeFilter->setCurrentIndex(0);
-
-    readerModel->setFilter("");
-    readerModel->select();
-}
-
 // 借还书管理槽函数
 void LibraryManager::borrowBook()
 {
@@ -1909,17 +1897,3 @@ QIcon LibraryManager::createIcon(const QString &color, const QString &symbol)
 
     return QIcon(pixmap);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
